@@ -35,13 +35,13 @@ namespace BlockBot
             _world = new WorldManager(new ConsoleLogger<WorldManager>());
             _entities = new EntityManager(new ConsoleLogger<EntityManager>());
             _inventory = new InventoryManager(new ConsoleLogger<InventoryManager>());
-            _navigation = new NavigationManager(_world, new ConsoleLogger<NavigationManager>());
+            _navigation = new NavigationManager(_world, _entities, new ConsoleLogger<NavigationManager>());
             _chat = new ChatManager(_client, new ConsoleLogger<ChatManager>());
-            _combat = new CombatManager(_entities, new ConsoleLogger<CombatManager>());
-            _crafting = new CraftingManager(_inventory, new ConsoleLogger<CraftingManager>());
-            _building = new BuildingManager(_world, _inventory, new ConsoleLogger<BuildingManager>());
-            _farming = new FarmingManager(_world, _inventory, new ConsoleLogger<FarmingManager>());
-            _mining = new MiningManager(_world, _inventory, _navigation, new ConsoleLogger<MiningManager>());
+            _combat = new CombatManager(_entities, _client, new ConsoleLogger<CombatManager>());
+            _crafting = new CraftingManager(_inventory, _client, new ConsoleLogger<CraftingManager>());
+            _building = new BuildingManager(_world, _inventory, _client, new ConsoleLogger<BuildingManager>());
+            _farming = new FarmingManager(_world, _inventory, _client, new ConsoleLogger<FarmingManager>());
+            _mining = new MiningManager(_world, _inventory, _navigation, _client, new ConsoleLogger<MiningManager>());
             _redstone = new RedstoneManager(_world, new ConsoleLogger<RedstoneManager>());
             _ai = new AdvancedAI(_world, _entities, _navigation, new ConsoleLogger<AdvancedAI>());
             

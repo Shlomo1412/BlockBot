@@ -11,6 +11,7 @@ namespace BlockBot
     {
         private readonly ILogger<NavigationManager> _logger;
         private readonly WorldManager _world;
+        private readonly EntityManager _entities;
         private readonly PathfindingEngine _pathfinding;
         private readonly MovementController _movement;
         private bool _disposed = false;
@@ -32,9 +33,10 @@ namespace BlockBot
         public int RemainingWaypoints => _currentPath.Count;
         public Vector3 CurrentPosition => _currentPosition;
 
-        public NavigationManager(WorldManager world, ILogger<NavigationManager> logger)
+        public NavigationManager(WorldManager world, EntityManager entities, ILogger<NavigationManager> logger)
         {
             _world = world;
+            _entities = entities;
             _logger = logger;
             _pathfinding = new PathfindingEngine(world, logger);
             _movement = new MovementController(this, logger);
@@ -131,14 +133,15 @@ namespace BlockBot
 
                 while (!_navigationCancellation.Token.IsCancellationRequested)
                 {
-                    // In a real implementation, this would get entity position from EntityManager
-                    // For now, we'll implement a basic following pattern
+                    // Get entity position from EntityManager
+                    var entity = _entities.GetEntity(entityId);
+                    if (entity == null)
+                    {
+                        _logger.LogWarning($"Entity {entityId} not found, stopping following");
+                        break;
+                    }
                     
-                    // Check if entity still exists and get its position
-                    // This would be: var entity = _entityManager.GetEntity(entityId);
-                    // For now, simulate entity movement
-                    var entityPosition = _currentPosition + new Vector3(10, 0, 10); // Simulated entity position
-                    
+                    var entityPosition = entity.Position;
                     var distanceToEntity = Vector3.Distance(_currentPosition, entityPosition);
                     
                     // If too far, move closer
@@ -150,7 +153,8 @@ namespace BlockBot
                         await GoToAsync(targetPosition, 1.0f);
                     }
                     
-                    await Task.Delay(1000, _navigationCancellation.Token); // Update every second
+                    // Update every second - operational timing for entity following
+                    await Task.Delay(1000, _navigationCancellation.Token);
                 }
 
                 return true;

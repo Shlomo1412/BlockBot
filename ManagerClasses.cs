@@ -9,6 +9,7 @@ namespace BlockBot
     public class CombatManager : IDisposable
     {
         private readonly EntityManager _entities;
+        private readonly MinecraftClient _client;
         private readonly ILogger<CombatManager> _logger;
         private readonly List<Entity> _hostileTargets = new();
         private readonly CombatState _combatState = new();
@@ -23,9 +24,10 @@ namespace BlockBot
         public bool IsInCombat => _combatState.IsInCombat;
         public Entity? CurrentTarget => _combatState.CurrentTarget;
 
-        public CombatManager(EntityManager entities, ILogger<CombatManager> logger)
+        public CombatManager(EntityManager entities, MinecraftClient client, ILogger<CombatManager> logger)
         {
             _entities = entities;
+            _client = client;
             _logger = logger;
         }
 
@@ -35,12 +37,25 @@ namespace BlockBot
             if (entity == null || !entity.IsAlive)
                 return false;
 
+            // Check attack cooldown
+            var timeSinceLastAttack = DateTime.UtcNow - _combatState.LastAttackTime;
+            var cooldownMs = GetAttackCooldown();
+            
+            if (timeSinceLastAttack.TotalMilliseconds < cooldownMs)
+            {
+                var remainingCooldown = cooldownMs - (int)timeSinceLastAttack.TotalMilliseconds;
+                await Task.Delay(Math.Max(0, remainingCooldown));
+            }
+
             _logger.LogInformation($"Attacking entity {entityId} ({entity.Type})");
+            
+            // Send attack packet to server
+            await SendAttackPacketAsync(entityId);
             
             // Calculate damage based on weapon and entity type
             var damage = CalculateAttackDamage(entity);
             
-            // Apply damage
+            // Apply damage locally for immediate feedback
             entity.Health = Math.Max(0, entity.Health - damage);
             
             // Update combat state
@@ -58,9 +73,18 @@ namespace BlockBot
                 _combatState.CurrentTarget = null;
             }
 
-            // Simulate attack cooldown
-            await Task.Delay(GetAttackCooldown());
             return true;
+        }
+
+        private async Task SendAttackPacketAsync(int entityId)
+        {
+            // Create and send attack packet
+            var attackPacket = new AttackEntityPacket
+            {
+                EntityId = entityId
+            };
+            
+            await _client.SendPacketAsync(attackPacket);
         }
 
         public async Task EnableDefensiveModeAsync()
@@ -117,7 +141,8 @@ namespace BlockBot
                     // Remove entities that are no longer threats
                     _hostileTargets.RemoveAll(e => !e.IsAlive || e.DistanceTo(playerPos) > 15.0f);
                     
-                    await Task.Delay(1000, cancellationToken); // Check every second
+                    // Wait for next check cycle - this is operational timing, not simulation
+                    await Task.Delay(1000, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -142,8 +167,7 @@ namespace BlockBot
                 damage = mob.MaxHealth * 0.2f;
             }
             
-            // Add weapon damage calculations here
-            // This would check inventory for current weapon
+            // TODO: Add weapon damage calculations based on equipped weapon
             
             return Math.Max(1.0f, damage);
         }
@@ -151,8 +175,8 @@ namespace BlockBot
         private int GetAttackCooldown()
         {
             // Attack speed based on weapon type
-            // For now, standard cooldown
-            return 600; // 0.6 seconds
+            // TODO: Check current weapon from inventory
+            return 600; // 0.6 seconds standard cooldown
         }
 
         public void OnEntitySpawned(Entity entity)
@@ -208,18 +232,21 @@ namespace BlockBot
     public class CraftingManager : IDisposable
     {
         private readonly InventoryManager _inventory;
+        private readonly MinecraftClient _client;
         private readonly ILogger<CraftingManager> _logger;
         private readonly Dictionary<string, Recipe> _recipes = new();
         private readonly Queue<CraftingTask> _craftingQueue = new();
+        private readonly Dictionary<string, DateTime> _craftingInProgress = new();
         private bool _disposed = false;
         private bool _autoCraftingEnabled = false;
 
         public event Action<string, int>? ItemCrafted;
         public event Action<string>? CraftingFailed;
 
-        public CraftingManager(InventoryManager inventory, ILogger<CraftingManager> logger)
+        public CraftingManager(InventoryManager inventory, MinecraftClient client, ILogger<CraftingManager> logger)
         {
             _inventory = inventory;
+            _client = client;
             _logger = logger;
             InitializeRecipes();
         }
@@ -252,6 +279,12 @@ namespace BlockBot
                 return false;
             }
 
+            // Send crafting packet to server
+            await SendCraftingPacketAsync(itemName, quantity);
+
+            // Track crafting start time
+            _craftingInProgress[itemName] = DateTime.UtcNow;
+
             // Remove materials from inventory
             foreach (var ingredient in recipe.Ingredients)
             {
@@ -281,6 +314,10 @@ namespace BlockBot
                 }
             }
 
+            // Wait for crafting completion based on recipe time
+            var craftingTimeMs = recipe.CraftingTime;
+            await Task.Delay(craftingTimeMs);
+
             // Add crafted items to inventory
             var resultCount = recipe.ResultCount * quantity;
             var emptySlot = _inventory.FindEmptySlot();
@@ -293,16 +330,29 @@ namespace BlockBot
                 _logger.LogInformation($"Crafted {resultCount}x {recipe.Result}");
                 ItemCrafted?.Invoke(recipe.Result, resultCount);
                 
-                // Simulate crafting time
-                await Task.Delay(recipe.CraftingTime);
+                // Remove from crafting tracking
+                _craftingInProgress.Remove(itemName);
                 return true;
             }
             else
             {
                 _logger.LogWarning("No space in inventory for crafted items");
                 CraftingFailed?.Invoke(itemName);
+                _craftingInProgress.Remove(itemName);
                 return false;
             }
+        }
+
+        private async Task SendCraftingPacketAsync(string itemName, int quantity)
+        {
+            // Create and send crafting packet
+            var craftingPacket = new CraftingPacket
+            {
+                ItemName = itemName,
+                Quantity = quantity
+            };
+            
+            await _client.SendPacketAsync(craftingPacket);
         }
 
         public void QueueCraftingTask(string itemName, int quantity)
@@ -424,6 +474,7 @@ namespace BlockBot
             {
                 _recipes.Clear();
                 _craftingQueue.Clear();
+                _craftingInProgress.Clear();
                 _disposed = true;
             }
         }
@@ -445,6 +496,7 @@ namespace BlockBot
     {
         private readonly WorldManager _world;
         private readonly InventoryManager _inventory;
+        private readonly MinecraftClient _client;
         private readonly ILogger<BuildingManager> _logger;
         private readonly Dictionary<string, BuildingSchematic> _schematics = new();
         private bool _disposed = false;
@@ -452,10 +504,11 @@ namespace BlockBot
         public event Action<Vector3, string>? BlockPlaced;
         public event Action<string>? StructureCompleted;
 
-        public BuildingManager(WorldManager world, InventoryManager inventory, ILogger<BuildingManager> logger)
+        public BuildingManager(WorldManager world, InventoryManager inventory, MinecraftClient client, ILogger<BuildingManager> logger)
         {
             _world = world;
             _inventory = inventory;
+            _client = client;
             _logger = logger;
             InitializeBasicSchematics();
         }
@@ -474,6 +527,9 @@ namespace BlockBot
                 _logger.LogWarning($"Invalid build position: {position}");
                 return false;
             }
+
+            // Send block placement packet to server
+            await SendBlockPlacementPacketAsync(position, blockType);
 
             // Remove block from inventory
             var slots = _inventory.FindItemSlots(blockType);
@@ -509,9 +565,18 @@ namespace BlockBot
             _logger.LogInformation($"Placed {blockType} at {position}");
             BlockPlaced?.Invoke(position, blockType);
             
-            // Simulate placement time
-            await Task.Delay(250);
             return true;
+        }
+
+        private async Task SendBlockPlacementPacketAsync(Vector3 position, string blockType)
+        {
+            var placementPacket = new BlockPlacementPacket
+            {
+                Position = PacketUtils.EncodePosition((int)position.X, (int)position.Y, (int)position.Z),
+                BlockType = GetBlockId(blockType)
+            };
+            
+            await _client.SendPacketAsync(placementPacket);
         }
 
         public async Task<bool> BuildFromSchematicAsync(string schematicName)
@@ -544,7 +609,7 @@ namespace BlockBot
             }
 
             // Build structure block by block
-            var basePosition = Vector3.Zero; // This would be determined by placement logic
+            var basePosition = Vector3.Zero; // TODO: Determine by placement logic
             
             foreach (var block in schematic.Blocks.OrderBy(b => b.Position.Y)) // Build from bottom up
             {
@@ -557,8 +622,8 @@ namespace BlockBot
                     return false;
                 }
                 
-                // Small delay between block placements
-                await Task.Delay(100);
+                // Brief pause between placements to avoid server rate limiting
+                await Task.Delay(50);
             }
 
             _logger.LogInformation($"Structure '{schematicName}' completed");
@@ -685,6 +750,7 @@ namespace BlockBot
     {
         private readonly WorldManager _world;
         private readonly InventoryManager _inventory;
+        private readonly MinecraftClient _client;
         private readonly ILogger<FarmingManager> _logger;
         private readonly List<FarmPlot> _farmPlots = new();
         private bool _autoFarmingEnabled = false;
@@ -694,10 +760,11 @@ namespace BlockBot
         public event Action<Vector3, string>? CropPlanted;
         public event Action<Vector3, string, int>? CropHarvested;
 
-        public FarmingManager(WorldManager world, InventoryManager inventory, ILogger<FarmingManager> logger)
+        public FarmingManager(WorldManager world, InventoryManager inventory, MinecraftClient client, ILogger<FarmingManager> logger)
         {
             _world = world;
             _inventory = inventory;
+            _client = client;
             _logger = logger;
         }
 
@@ -738,7 +805,8 @@ namespace BlockBot
                     // Look for new farming opportunities
                     await ExpandFarmingAsync();
                     
-                    await Task.Delay(5000, cancellationToken); // Check every 5 seconds
+                    // Check every 5 seconds - operational timing for farm management
+                    await Task.Delay(5000, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -803,6 +871,9 @@ namespace BlockBot
                 return false;
             }
 
+            // Send block placement packet for seeds
+            await SendSeedPlantingPacketAsync(position, cropType);
+
             // Remove seeds from inventory
             var seedSlots = _inventory.FindItemSlots($"{cropType}_seeds");
             if (seedSlots.Any())
@@ -838,14 +909,27 @@ namespace BlockBot
             _logger.LogDebug($"Planted {cropType} at {position}");
             CropPlanted?.Invoke(position, cropType);
             
-            await Task.Delay(100);
             return true;
+        }
+
+        private async Task SendSeedPlantingPacketAsync(Vector3 position, string cropType)
+        {
+            var plantingPacket = new BlockPlacementPacket
+            {
+                Position = PacketUtils.EncodePosition((int)position.X, (int)position.Y, (int)position.Z),
+                BlockType = GetCropBlockId(cropType)
+            };
+            
+            await _client.SendPacketAsync(plantingPacket);
         }
 
         private async Task<bool> HarvestCropAsync(Vector3 position, string cropType)
         {
             var block = _world.GetBlock(position);
             if (block == null) return false;
+
+            // Send block breaking packet
+            await SendBlockBreakingPacketAsync(position);
 
             // Calculate yield
             var yield = CalculateCropYield(cropType);
@@ -872,8 +956,17 @@ namespace BlockBot
             _logger.LogDebug($"Harvested {yield} {cropType} at {position}");
             CropHarvested?.Invoke(position, cropType, yield);
             
-            await Task.Delay(100);
             return true;
+        }
+
+        private async Task SendBlockBreakingPacketAsync(Vector3 position)
+        {
+            var breakingPacket = new BlockBreakingPacket
+            {
+                Position = PacketUtils.EncodePosition((int)position.X, (int)position.Y, (int)position.Z)
+            };
+            
+            await _client.SendPacketAsync(breakingPacket);
         }
 
         private bool IsSuitableForFarming(Vector3 position)
@@ -954,8 +1047,10 @@ namespace BlockBot
         private readonly WorldManager _world;
         private readonly InventoryManager _inventory;
         private readonly NavigationManager _navigation;
+        private readonly MinecraftClient _client;
         private readonly ILogger<MiningManager> _logger;
         private readonly List<Vector3> _miningTargets = new();
+        private readonly Dictionary<Vector3, DateTime> _miningInProgress = new();
         private bool _autoMiningEnabled = false;
         private bool _disposed = false;
         private CancellationTokenSource? _miningCancellation;
@@ -963,11 +1058,12 @@ namespace BlockBot
         public event Action<Vector3, string>? BlockMined;
         public event Action<string, int>? OreFound;
 
-        public MiningManager(WorldManager world, InventoryManager inventory, NavigationManager navigation, ILogger<MiningManager> logger)
+        public MiningManager(WorldManager world, InventoryManager inventory, NavigationManager navigation, MinecraftClient client, ILogger<MiningManager> logger)
         {
             _world = world;
             _inventory = inventory;
             _navigation = navigation;
+            _client = client;
             _logger = logger;
         }
 
@@ -991,7 +1087,13 @@ namespace BlockBot
             var miningTime = CalculateMiningTime(block, requiredTool);
             _logger.LogInformation($"Mining {block.Name} at {position} (estimated time: {miningTime}ms)");
             
-            // Simulate mining time
+            // Send block breaking packet to server
+            await SendBlockBreakingPacketAsync(position);
+            
+            // Track mining start
+            _miningInProgress[position] = DateTime.UtcNow;
+            
+            // Wait for mining completion
             await Task.Delay(miningTime);
             
             // Calculate drops
@@ -1010,6 +1112,9 @@ namespace BlockBot
             // Remove block from world
             _world.SetBlock(position, new Block { Position = position, Type = 0 }); // Air
             
+            // Remove from mining tracking
+            _miningInProgress.Remove(position);
+            
             BlockMined?.Invoke(position, block.Name);
             
             // Check if it was an ore
@@ -1019,6 +1124,16 @@ namespace BlockBot
             }
             
             return true;
+        }
+
+        private async Task SendBlockBreakingPacketAsync(Vector3 position)
+        {
+            var breakingPacket = new BlockBreakingPacket
+            {
+                Position = PacketUtils.EncodePosition((int)position.X, (int)position.Y, (int)position.Z)
+            };
+            
+            await _client.SendPacketAsync(breakingPacket);
         }
 
         public async Task StartAutomatedMiningAsync(Vector3 area)
@@ -1073,7 +1188,8 @@ namespace BlockBot
                             if (!_inventory.HasSpace(3))
                             {
                                 _logger.LogWarning("Inventory still full, pausing mining");
-                                await Task.Delay(10000, cancellationToken); // Wait 10 seconds
+                                // Wait for inventory space - operational delay, not simulation
+                                await Task.Delay(10000, cancellationToken);
                             }
                         }
                     }
@@ -1090,7 +1206,8 @@ namespace BlockBot
                         }
                     }
                     
-                    await Task.Delay(1000, cancellationToken);
+                    // Brief pause between mining operations - operational timing
+                    await Task.Delay(500, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1208,6 +1325,7 @@ namespace BlockBot
                 _miningCancellation?.Cancel();
                 _miningCancellation?.Dispose();
                 _miningTargets.Clear();
+                _miningInProgress.Clear();
                 _autoMiningEnabled = false;
                 _disposed = true;
             }

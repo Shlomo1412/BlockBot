@@ -389,6 +389,152 @@ namespace BlockBot
     }
 
     /// <summary>
+    /// Attack entity packet
+    /// </summary>
+    public class AttackEntityPacket : Packet
+    {
+        public override int PacketId => 0x0A;
+        public int EntityId { get; set; }
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            PacketUtils.WriteVarInt(writer, EntityId);
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            EntityId = PacketUtils.ReadVarInt(reader);
+        }
+    }
+
+    /// <summary>
+    /// Crafting packet
+    /// </summary>
+    public class CraftingPacket : Packet
+    {
+        public override int PacketId => 0x18;
+        public string ItemName { get; set; } = string.Empty;
+        public int Quantity { get; set; }
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            PacketUtils.WriteString(writer, ItemName);
+            PacketUtils.WriteVarInt(writer, Quantity);
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            ItemName = PacketUtils.ReadString(reader);
+            Quantity = PacketUtils.ReadVarInt(reader);
+        }
+    }
+
+    /// <summary>
+    /// Block placement packet
+    /// </summary>
+    public class BlockPlacementPacket : Packet
+    {
+        public override int PacketId => 0x2E;
+        public long Position { get; set; }
+        public int BlockType { get; set; }
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            writer.Write(Position);
+            PacketUtils.WriteVarInt(writer, BlockType);
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            Position = reader.ReadInt64();
+            BlockType = PacketUtils.ReadVarInt(reader);
+        }
+    }
+
+    /// <summary>
+    /// Block breaking packet
+    /// </summary>
+    public class BlockBreakingPacket : Packet
+    {
+        public override int PacketId => 0x1A;
+        public long Position { get; set; }
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            writer.Write(Position);
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            Position = reader.ReadInt64();
+        }
+    }
+
+    /// <summary>
     /// Factory for creating packet instances
     /// </summary>
     public static class PacketFactory
@@ -399,9 +545,13 @@ namespace BlockBot
             { 0x01, () => new SpawnEntityPacket() },
             { 0x02, () => new LoginSuccessPacket() },
             { 0x05, () => new ChatPacket() },
+            { 0x0A, () => new AttackEntityPacket() },
             { 0x0C, () => new BlockChangePacket() },
             { 0x13, () => new WindowItemsPacket() },
-            { 0x14, () => new PlayerPositionPacket() }
+            { 0x14, () => new PlayerPositionPacket() },
+            { 0x18, () => new CraftingPacket() },
+            { 0x1A, () => new BlockBreakingPacket() },
+            { 0x2E, () => new BlockPlacementPacket() }
         };
 
         public static Packet? CreatePacket(int packetId, byte[] data)
