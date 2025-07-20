@@ -133,6 +133,7 @@ namespace BlockBot
             _world.ChunkLoaded += _navigation.OnChunkLoaded;
             _entities.EntitySpawned += _combat.OnEntitySpawned;
             _entities.EntityRemoved += _combat.OnEntityRemoved;
+            _entities.EntityMoved += OnEntityMoved;
             _inventory.ItemChanged += _crafting.OnItemChanged;
         }
 
@@ -143,6 +144,15 @@ namespace BlockBot
             await _entities.HandlePacketAsync(packet);
             await _inventory.HandlePacketAsync(packet);
             await _chat.HandlePacketAsync(packet);
+        }
+
+        private void OnEntityMoved(Entity entity)
+        {
+            // Update navigation system when player moves
+            if (entity == _entities.Player)
+            {
+                _navigation.UpdatePosition(entity.Position);
+            }
         }
 
         private void OnDisconnected()

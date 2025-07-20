@@ -19,28 +19,37 @@ namespace BlockBot
         private Queue<Vector3> _currentPath = new();
         private bool _isNavigating = false;
         private CancellationTokenSource? _navigationCancellation;
+        private Vector3 _currentPosition = Vector3.Zero;
 
         public event Action<Vector3>? PathStarted;
         public event Action<Vector3>? PathCompleted;
         public event Action? PathFailed;
         public event Action<Vector3>? WaypointReached;
+        public event Action<Vector3>? PositionUpdated;
 
         public bool IsNavigating => _isNavigating;
         public Vector3? CurrentTarget => _currentTarget;
         public int RemainingWaypoints => _currentPath.Count;
+        public Vector3 CurrentPosition => _currentPosition;
 
         public NavigationManager(WorldManager world, ILogger<NavigationManager> logger)
         {
             _world = world;
             _logger = logger;
             _pathfinding = new PathfindingEngine(world, logger);
-            _movement = new MovementController(logger);
+            _movement = new MovementController(this, logger);
         }
 
         public async Task InitializeAsync()
         {
             _logger.LogInformation("Initializing navigation manager");
             await Task.CompletedTask;
+        }
+
+        public void UpdatePosition(Vector3 position)
+        {
+            _currentPosition = position;
+            PositionUpdated?.Invoke(position);
         }
 
         public async Task<bool> GoToAsync(Vector3 destination, float tolerance = 0.5f)
@@ -52,22 +61,17 @@ namespace BlockBot
                 // Cancel any existing navigation
                 await StopNavigationAsync();
 
-                var playerPos = GetPlayerPosition();
-                if (playerPos == null)
-                {
-                    _logger.LogWarning("Cannot navigate: player position unknown");
-                    return false;
-                }
-
+                var playerPos = _currentPosition;
+                
                 // Check if already at destination
-                if (Vector3.Distance(playerPos.Value, destination) <= tolerance)
+                if (Vector3.Distance(playerPos, destination) <= tolerance)
                 {
                     _logger.LogDebug("Already at destination");
                     return true;
                 }
 
                 // Find path
-                var path = await _pathfinding.FindPathAsync(playerPos.Value, destination);
+                var path = await _pathfinding.FindPathAsync(playerPos, destination);
                 if (path == null || path.Count == 0)
                 {
                     _logger.LogWarning($"No path found to {destination}");
@@ -127,10 +131,26 @@ namespace BlockBot
 
                 while (!_navigationCancellation.Token.IsCancellationRequested)
                 {
-                    // Get entity position (this would need entity manager reference)
-                    // For now, simulate with a basic approach
+                    // In a real implementation, this would get entity position from EntityManager
+                    // For now, we'll implement a basic following pattern
                     
-                    await Task.Delay(500, _navigationCancellation.Token); // Update every 500ms
+                    // Check if entity still exists and get its position
+                    // This would be: var entity = _entityManager.GetEntity(entityId);
+                    // For now, simulate entity movement
+                    var entityPosition = _currentPosition + new Vector3(10, 0, 10); // Simulated entity position
+                    
+                    var distanceToEntity = Vector3.Distance(_currentPosition, entityPosition);
+                    
+                    // If too far, move closer
+                    if (distanceToEntity > distance + 2.0f)
+                    {
+                        var direction = Vector3.Normalize(entityPosition - _currentPosition);
+                        var targetPosition = entityPosition - direction * distance;
+                        
+                        await GoToAsync(targetPosition, 1.0f);
+                    }
+                    
+                    await Task.Delay(1000, _navigationCancellation.Token); // Update every second
                 }
 
                 return true;
@@ -169,14 +189,7 @@ namespace BlockBot
             while (_currentPath.Count > 0 && !cancellationToken.IsCancellationRequested)
             {
                 var waypoint = _currentPath.Dequeue();
-                var playerPos = GetPlayerPosition();
                 
-                if (playerPos == null)
-                {
-                    _logger.LogWarning("Lost player position during navigation");
-                    return false;
-                }
-
                 // Move to waypoint
                 var success = await _movement.MoveToAsync(waypoint, tolerance, cancellationToken);
                 
@@ -185,7 +198,7 @@ namespace BlockBot
                     _logger.LogWarning($"Failed to reach waypoint {waypoint}");
                     
                     // Try to recalculate path
-                    var newPath = await _pathfinding.FindPathAsync(playerPos.Value, _currentTarget!.Value);
+                    var newPath = await _pathfinding.FindPathAsync(_currentPosition, _currentTarget!.Value);
                     if (newPath != null && newPath.Count > 0)
                     {
                         _currentPath = new Queue<Vector3>(newPath);
@@ -200,13 +213,6 @@ namespace BlockBot
             }
 
             return true;
-        }
-
-        private Vector3? GetPlayerPosition()
-        {
-            // This would normally get position from entity manager
-            // For now, return a placeholder
-            return Vector3.Zero;
         }
 
         public void Dispose()
@@ -230,6 +236,7 @@ namespace BlockBot
         private readonly WorldManager _world;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<ChunkCoordinate, DateTime> _cacheInvalidation;
+        private readonly Dictionary<string, List<Vector3>> _pathCache;
         private bool _disposed = false;
 
         public PathfindingEngine(WorldManager world, ILogger logger)
@@ -237,6 +244,7 @@ namespace BlockBot
             _world = world;
             _logger = logger;
             _cacheInvalidation = new ConcurrentDictionary<ChunkCoordinate, DateTime>();
+            _pathCache = new Dictionary<string, List<Vector3>>();
         }
 
         public async Task<List<Vector3>?> FindPathAsync(Vector3 start, Vector3 end, int maxNodes = 10000)
@@ -246,6 +254,14 @@ namespace BlockBot
 
         public List<Vector3>? FindPath(Vector3 start, Vector3 end, int maxNodes = 10000)
         {
+            // Check cache first
+            var cacheKey = $"{start}-{end}";
+            if (_pathCache.TryGetValue(cacheKey, out var cachedPath))
+            {
+                _logger.LogDebug("Using cached path");
+                return cachedPath;
+            }
+
             var startNode = new PathNode(start, 0, GetHeuristic(start, end));
             var endPos = end;
 
@@ -268,6 +284,10 @@ namespace BlockBot
                     // Found path, reconstruct it
                     var path = ReconstructPath(current);
                     _logger.LogDebug($"Path found with {path.Count} waypoints (evaluated {nodesEvaluated} nodes)");
+                    
+                    // Cache the path
+                    _pathCache[cacheKey] = path;
+                    
                     return path;
                 }
 
@@ -317,18 +337,19 @@ namespace BlockBot
         {
             var neighbors = new List<Vector3>();
             
-            // Basic 26-directional movement (including diagonals and vertical)
+            // 8-directional movement (horizontal only for basic implementation)
             for (int x = -1; x <= 1; x++)
             {
-                for (int y = -1; y <= 1; y++)
+                for (int z = -1; z <= 1; z++)
                 {
-                    for (int z = -1; z <= 1; z++)
-                    {
-                        if (x == 0 && y == 0 && z == 0) continue;
-                        
-                        var neighbor = position + new Vector3(x, y, z);
-                        neighbors.Add(neighbor);
-                    }
+                    if (x == 0 && z == 0) continue;
+                    
+                    var neighbor = position + new Vector3(x, 0, z);
+                    neighbors.Add(neighbor);
+                    
+                    // Also check one block up and one block down
+                    neighbors.Add(neighbor + Vector3.UnitY);
+                    neighbors.Add(neighbor - Vector3.UnitY);
                 }
             }
 
@@ -431,6 +452,16 @@ namespace BlockBot
         public void InvalidateCache(ChunkCoordinate chunk)
         {
             _cacheInvalidation[chunk] = DateTime.UtcNow;
+            
+            // Clear relevant cached paths
+            var keysToRemove = _pathCache.Keys.Where(key => 
+                key.Contains($"{chunk.X * 16}") || 
+                key.Contains($"{chunk.Z * 16}")).ToList();
+                
+            foreach (var key in keysToRemove)
+            {
+                _pathCache.Remove(key);
+            }
         }
 
         public void Dispose()
@@ -438,6 +469,7 @@ namespace BlockBot
             if (!_disposed)
             {
                 _cacheInvalidation.Clear();
+                _pathCache.Clear();
                 _disposed = true;
             }
         }
@@ -448,11 +480,14 @@ namespace BlockBot
     /// </summary>
     public class MovementController : IDisposable
     {
+        private readonly NavigationManager _navigation;
         private readonly ILogger _logger;
         private bool _disposed = false;
+        private CancellationTokenSource? _movementCancellation;
 
-        public MovementController(ILogger logger)
+        public MovementController(NavigationManager navigation, ILogger logger)
         {
+            _navigation = navigation;
             _logger = logger;
         }
 
@@ -460,21 +495,32 @@ namespace BlockBot
         {
             try
             {
-                // Simulate movement - in real implementation this would send movement packets
-                var steps = 10;
-                for (int i = 0; i < steps && !cancellationToken.IsCancellationRequested; i++)
+                _movementCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                
+                var startPosition = _navigation.CurrentPosition;
+                var distance = Vector3.Distance(startPosition, target);
+                var moveTime = Math.Max(100, (int)(distance * 1000)); // 1 second per block minimum 100ms
+                var steps = Math.Max(10, (int)(distance * 10)); // 10 steps per block
+                
+                for (int i = 0; i <= steps && !_movementCancellation.Token.IsCancellationRequested; i++)
                 {
-                    await Task.Delay(100, cancellationToken);
+                    var progress = (float)i / steps;
+                    var currentPos = Vector3.Lerp(startPosition, target, progress);
+                    
+                    // Update position
+                    _navigation.UpdatePosition(currentPos);
                     
                     // Check if reached target
-                    var currentPos = GetCurrentPosition();
                     if (Vector3.Distance(currentPos, target) <= tolerance)
                     {
+                        _navigation.UpdatePosition(target);
                         return true;
                     }
+                    
+                    await Task.Delay(moveTime / steps, _movementCancellation.Token);
                 }
 
-                return true; // Simulate success
+                return Vector3.Distance(_navigation.CurrentPosition, target) <= tolerance;
             }
             catch (OperationCanceledException)
             {
@@ -484,20 +530,16 @@ namespace BlockBot
 
         public async Task StopAsync()
         {
-            // Stop all movement
+            _movementCancellation?.Cancel();
             await Task.CompletedTask;
-        }
-
-        private Vector3 GetCurrentPosition()
-        {
-            // Get current player position - placeholder
-            return Vector3.Zero;
         }
 
         public void Dispose()
         {
             if (!_disposed)
             {
+                _movementCancellation?.Cancel();
+                _movementCancellation?.Dispose();
                 _disposed = true;
             }
         }

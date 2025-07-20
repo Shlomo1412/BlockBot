@@ -1,32 +1,32 @@
-# BlockBot - Advanced Minecraft Bot Library for C#
+﻿# BlockBot - Advanced Minecraft Bot Library for C#
 
 BlockBot is a powerful, feature-rich C# library for creating Minecraft bots, similar to Mineflayer but with enhanced capabilities and .NET 8 performance optimizations.
 
-## ?? Features
+## 🚀 Features
 
 ### Core Features
-- **?? Protocol Support**: Full Minecraft protocol implementation
-- **??? World Management**: Complete world state tracking and block management
-- **?? Entity Management**: Player, mob, and item entity tracking
-- **?? Inventory Management**: Advanced inventory operations and optimization
-- **?? Navigation**: A* pathfinding with obstacle avoidance
-- **?? Chat System**: Comprehensive chat handling with command processing
-- **?? Combat System**: Intelligent combat with defensive modes
-- **?? Crafting**: Automated crafting with recipe management
-- **??? Building**: Schematic-based construction system
-- **?? Farming**: Automated farming operations
-- **?? Mining**: Intelligent mining with tool optimization
-- **?? Advanced AI**: Goal-oriented behavior and learning
+- **🔌 Protocol Support**: Full Minecraft protocol implementation
+- **🗺️ World Management**: Complete world state tracking and block management
+- **👥 Entity Management**: Player, mob, and item entity tracking
+- **🎒 Inventory Management**: Advanced inventory operations and optimization
+- **🧭 Navigation**: A* pathfinding with obstacle avoidance
+- **💬 Chat System**: Comprehensive chat handling with command processing
+- **⚔️ Combat System**: Intelligent combat with defensive modes
+- **🔧 Crafting**: Automated crafting with recipe management
+- **🏗️ Building**: Schematic-based construction system
+- **🌾 Farming**: Automated farming operations
+- **⛏️ Mining**: Intelligent mining with tool optimization
+- **🤖 Advanced AI**: Goal-oriented behavior and learning
 
 ### Advanced Features
-- **?? Multi-objective AI**: Complex task scheduling and planning
-- **?? Performance Optimized**: Built for .NET 8 with async/await patterns
-- **?? Thread-Safe**: Concurrent operations with proper synchronization
-- **?? Extensive Logging**: Comprehensive logging with Microsoft.Extensions.Logging
-- **?? Event-Driven**: Rich event system for custom behaviors
-- **?? Extensible**: Plugin-style architecture for custom managers
+- **🧠 Multi-objective AI**: Complex task scheduling and planning
+- **📊 Performance Optimized**: Built for .NET 8 with async/await patterns
+- **🔒 Thread-Safe**: Concurrent operations with proper synchronization
+- **📝 Extensive Logging**: Comprehensive logging with Microsoft.Extensions.Logging
+- **🎯 Event-Driven**: Rich event system for custom behaviors
+- **🔌 Extensible**: Plugin-style architecture for custom managers
 
-## ?? Installation
+## 📦 Installation
 
 ```bash
 # Clone the repository
@@ -38,7 +38,7 @@ dotnet add reference BlockBot/BlockBot.csproj
 # Or include the source files directly in your project
 ```
 
-## ?? Quick Start
+## 🚀 Quick Start
 
 ```csharp
 using BlockBot;
@@ -72,7 +72,7 @@ if (connected)
 bot.Dispose();
 ```
 
-## ?? Documentation
+## 📚 Documentation
 
 ### Basic Usage
 
@@ -199,7 +199,7 @@ bot.Inventory.ItemAdded += (slot, item) =>
 };
 ```
 
-## ??? Architecture
+## 🏗️ Architecture
 
 ### Core Components
 
@@ -221,7 +221,7 @@ bot.Inventory.ItemAdded += (slot, item) =>
 - **RedstoneManager**: Redstone circuit management
 - **AdvancedAI**: AI behaviors and decision making
 
-## ?? Configuration
+## 🔧 Configuration
 
 ### Logging
 ```csharp
@@ -242,7 +242,7 @@ var bot = new BlockBot(logger);
 // - Event-driven architecture
 ```
 
-## ?? Contributing
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
@@ -250,24 +250,24 @@ var bot = new BlockBot(logger);
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## ?? License
+## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## ?? Acknowledgments
+## 🙏 Acknowledgments
 
 - Inspired by the Mineflayer project for Node.js
 - Built with .NET 8 and modern C# features
 - Uses Microsoft.Extensions.Logging for comprehensive logging
 - Implements efficient algorithms for Minecraft bot operations
 
-## ?? Support
+## 📞 Support
 
 - Create an issue for bug reports or feature requests
 - Check the examples folder for comprehensive usage examples
 - See the source code for detailed implementation
 
-## ?? Roadmap
+## 🔮 Roadmap
 
 - [ ] Web interface for bot management
 - [ ] Plugin system for custom extensions

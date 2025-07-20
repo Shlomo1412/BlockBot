@@ -37,7 +37,38 @@ namespace BlockBot
 
         public async Task HandlePacketAsync(Packet packet)
         {
-            // Handle entity-related packets
+            switch (packet)
+            {
+                case SpawnEntityPacket spawnPacket:
+                    await HandleEntitySpawnAsync(spawnPacket);
+                    break;
+                case PlayerPositionPacket positionPacket:
+                    await HandlePlayerPositionAsync(positionPacket);
+                    break;
+                // Add more packet handlers as needed
+            }
+        }
+
+        private async Task HandleEntitySpawnAsync(SpawnEntityPacket packet)
+        {
+            var entity = new Entity(packet.EntityId, EntityType.Mob)
+            {
+                Position = new System.Numerics.Vector3((float)packet.X, (float)packet.Y, (float)packet.Z),
+                Yaw = packet.Yaw,
+                Pitch = packet.Pitch
+            };
+
+            AddEntity(entity);
+            await Task.CompletedTask;
+        }
+
+        private async Task HandlePlayerPositionAsync(PlayerPositionPacket packet)
+        {
+            if (Player != null)
+            {
+                Player.Position = new System.Numerics.Vector3((float)packet.X, (float)packet.Y, (float)packet.Z);
+                EntityMoved?.Invoke(Player);
+            }
             await Task.CompletedTask;
         }
 

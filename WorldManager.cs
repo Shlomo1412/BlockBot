@@ -157,13 +157,7 @@ namespace BlockBot
 
         private Vector3 DecodePosition(long encoded)
         {
-            var x = (int)(encoded >> 38);
-            var y = (int)(encoded & 0xFFF);
-            var z = (int)((encoded >> 12) & 0x3FFFFFF);
-
-            if (x >= 33554432) x -= 67108864;
-            if (z >= 33554432) z -= 67108864;
-
+            var (x, y, z) = PacketUtils.DecodePosition(encoded);
             return new Vector3(x, y, z);
         }
 

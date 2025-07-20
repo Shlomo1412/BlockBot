@@ -46,7 +46,13 @@ namespace BlockBot
 
         public override void Deserialize(byte[] data)
         {
-            // Implementation for reading handshake response
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            ProtocolVersion = PacketUtils.ReadVarInt(reader);
+            ServerAddress = PacketUtils.ReadString(reader);
+            ServerPort = reader.ReadUInt16();
+            NextState = PacketUtils.ReadVarInt(reader);
         }
     }
 
@@ -78,7 +84,48 @@ namespace BlockBot
 
         public override void Deserialize(byte[] data)
         {
-            // Implementation for reading login response
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            Username = PacketUtils.ReadString(reader);
+        }
+    }
+
+    /// <summary>
+    /// Login success packet
+    /// </summary>
+    public class LoginSuccessPacket : Packet
+    {
+        public override int PacketId => 0x02;
+        public string UUID { get; set; } = string.Empty;
+        public string Username { get; set; } = string.Empty;
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            PacketUtils.WriteString(writer, UUID);
+            PacketUtils.WriteString(writer, Username);
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            UUID = PacketUtils.ReadString(reader);
+            Username = PacketUtils.ReadString(reader);
         }
     }
 
@@ -206,15 +253,155 @@ namespace BlockBot
     }
 
     /// <summary>
+    /// Spawn entity packet
+    /// </summary>
+    public class SpawnEntityPacket : Packet
+    {
+        public override int PacketId => 0x01;
+        public int EntityId { get; set; }
+        public string EntityUUID { get; set; } = string.Empty;
+        public int EntityType { get; set; }
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Z { get; set; }
+        public byte Pitch { get; set; }
+        public byte Yaw { get; set; }
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            PacketUtils.WriteVarInt(writer, EntityId);
+            PacketUtils.WriteString(writer, EntityUUID);
+            PacketUtils.WriteVarInt(writer, EntityType);
+            writer.Write(X);
+            writer.Write(Y);
+            writer.Write(Z);
+            writer.Write(Pitch);
+            writer.Write(Yaw);
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            EntityId = PacketUtils.ReadVarInt(reader);
+            EntityUUID = PacketUtils.ReadString(reader);
+            EntityType = PacketUtils.ReadVarInt(reader);
+            X = reader.ReadDouble();
+            Y = reader.ReadDouble();
+            Z = reader.ReadDouble();
+            Pitch = reader.ReadByte();
+            Yaw = reader.ReadByte();
+        }
+    }
+
+    /// <summary>
+    /// Window items packet for inventory updates
+    /// </summary>
+    public class WindowItemsPacket : Packet
+    {
+        public override int PacketId => 0x13;
+        public byte WindowId { get; set; }
+        public short Count { get; set; }
+        public List<ItemSlot> Items { get; set; } = new();
+
+        public override byte[] Serialize()
+        {
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            writer.Write(WindowId);
+            writer.Write(Count);
+            
+            foreach (var item in Items)
+            {
+                if (item.Present)
+                {
+                    writer.Write(true);
+                    PacketUtils.WriteVarInt(writer, item.ItemId);
+                    writer.Write(item.ItemCount);
+                    // NBT data would go here in full implementation
+                }
+                else
+                {
+                    writer.Write(false);
+                }
+            }
+
+            var data = ms.ToArray();
+            using var finalMs = new MemoryStream();
+            using var finalWriter = new BinaryWriter(finalMs);
+            
+            PacketUtils.WriteVarInt(finalWriter, data.Length + PacketUtils.GetVarIntSize(PacketId));
+            PacketUtils.WriteVarInt(finalWriter, PacketId);
+            finalWriter.Write(data);
+
+            return finalMs.ToArray();
+        }
+
+        public override void Deserialize(byte[] data)
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
+
+            WindowId = reader.ReadByte();
+            Count = reader.ReadInt16();
+            
+            Items.Clear();
+            for (int i = 0; i < Count; i++)
+            {
+                var present = reader.ReadBoolean();
+                if (present)
+                {
+                    var itemId = PacketUtils.ReadVarInt(reader);
+                    var itemCount = reader.ReadByte();
+                    Items.Add(new ItemSlot { Present = true, ItemId = itemId, ItemCount = itemCount });
+                }
+                else
+                {
+                    Items.Add(new ItemSlot { Present = false });
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Represents an item slot in inventory packets
+    /// </summary>
+    public class ItemSlot
+    {
+        public bool Present { get; set; }
+        public int ItemId { get; set; }
+        public byte ItemCount { get; set; }
+    }
+
+    /// <summary>
     /// Factory for creating packet instances
     /// </summary>
     public static class PacketFactory
     {
         private static readonly Dictionary<int, Func<Packet>> PacketTypes = new()
         {
+            { 0x00, () => new HandshakePacket() },
+            { 0x01, () => new SpawnEntityPacket() },
+            { 0x02, () => new LoginSuccessPacket() },
             { 0x05, () => new ChatPacket() },
-            { 0x14, () => new PlayerPositionPacket() },
-            { 0x0C, () => new BlockChangePacket() }
+            { 0x0C, () => new BlockChangePacket() },
+            { 0x13, () => new WindowItemsPacket() },
+            { 0x14, () => new PlayerPositionPacket() }
         };
 
         public static Packet? CreatePacket(int packetId, byte[] data)
@@ -227,6 +414,11 @@ namespace BlockBot
             }
 
             return null;
+        }
+
+        public static void RegisterPacket(int packetId, Func<Packet> factory)
+        {
+            PacketTypes[packetId] = factory;
         }
     }
 
@@ -291,6 +483,23 @@ namespace BlockBot
                 value = (int)((uint)value >> 7);
             } while (value != 0);
             return size;
+        }
+
+        public static long EncodePosition(int x, int y, int z)
+        {
+            return ((long)(x & 0x3FFFFFF) << 38) | ((long)(z & 0x3FFFFFF) << 12) | (long)(y & 0xFFF);
+        }
+
+        public static (int x, int y, int z) DecodePosition(long encoded)
+        {
+            var x = (int)(encoded >> 38);
+            var y = (int)(encoded & 0xFFF);
+            var z = (int)((encoded >> 12) & 0x3FFFFFF);
+
+            if (x >= 33554432) x -= 67108864;
+            if (z >= 33554432) z -= 67108864;
+
+            return (x, y, z);
         }
     }
 
